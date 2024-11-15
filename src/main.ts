@@ -1,34 +1,24 @@
-// @deno-types="npm:@types/leaflet@^1.9.14"
+// Imports
 import leaflet from "leaflet";
-
-// Style sheets
 import "leaflet/dist/leaflet.css";
 import "./style.css";
-
-// Fix missing marker images
 import "./leafletWorkaround.ts";
-
-// Deterministic random number generator
 import luck from "./luck.ts";
+import { Board, Cell } from "./board.ts";
 
+// DOM and gameplay setup
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const button = document.createElement("button");
-button.addEventListener("click", () => {
-  alert("You clicked the button!");
-});
 button.innerHTML = "click me!";
+button.addEventListener("click", () => alert("You clicked the button!"));
 app.append(button);
 
-// Location of our classroom (as identified on Google Maps)
 const playerLocation = leaflet.latLng(36.98949379578401, -122.06277128548504);
-
-// Tunable gameplay parameters
 const GAMEPLAY_ZOOM_LEVEL = 19;
 const TILE_DEGREES = 1e-4;
 const NEIGHBORHOOD_SIZE = 8;
 const CACHE_SPAWN_PROBABILITY = 0.1;
 
-// Create the map (element with id "map" is defined in index.html)
 const map = leaflet.map(document.getElementById("map")!, {
   center: playerLocation,
   zoom: GAMEPLAY_ZOOM_LEVEL,
@@ -36,82 +26,136 @@ const map = leaflet.map(document.getElementById("map")!, {
   scrollWheelZoom: false,
 });
 
-// Populate the map with a background tile layer
-leaflet
-  .tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution:
-      '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  })
-  .addTo(map);
+leaflet.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19,
+  attribution:
+    '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+}).addTo(map);
 
-// Add a marker to represent the player
-const playerMarker = leaflet.marker(playerLocation);
-playerMarker.addTo(map);
+const playerMarker = leaflet.marker(playerLocation).addTo(map);
+playerMarker.bindPopup(() => {
+  const popupDiv1 = document.createElement("div");
+  popupDiv1.innerHTML = `<div>${board.getCellForPoint(playerLocation)}</div>`;
+  return popupDiv1;
+});
+
+interface Coins {
+  cell: Cell;
+  serial: number;
+}
+
+interface Cache {
+  coins: Coins[];
+}
+
+interface Inventory {
+  coins: Coins[];
+  collect(coin: Coins): void;
+  deposit(coin: Coins): void;
+}
+
+// Creating inventory that holds coins
+const playerInventory: Inventory = {
+  coins: [],
+  collect(coin: Coins) {
+    this.coins.push(coin);
+  },
+  deposit(coin: Coins) {
+    const index = this.coins.findIndex((c) =>
+      c.serial === coin.serial &&
+      c.cell.i === coin.cell.i &&
+      c.cell.j === coin.cell.j
+    );
+    if (index !== -1) {
+      this.coins.splice(index, 1);
+    }
+  },
+};
 
 let coins = 0;
-const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!; // element `statusPanel` is defined in index.html
+const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!;
 statusPanel.innerHTML = "Num Coins: 0";
 
-// Add caches to the map by cell numbers
-function spawnCache(i: number, j: number) {
-  // Convert cell numbers into lat/lng bounds
-  const origin = playerLocation;
-  const bounds = leaflet.latLngBounds([
-    [origin.lat + i * TILE_DEGREES, origin.lng + j * TILE_DEGREES],
-    [origin.lat + (i + 1) * TILE_DEGREES, origin.lng + (j + 1) * TILE_DEGREES],
-  ]);
+// Instantiate the board with gameplay parameters
+const board = new Board(
+  TILE_DEGREES,
+  NEIGHBORHOOD_SIZE,
+  CACHE_SPAWN_PROBABILITY,
+);
 
-  // Add a rectangle to the map to represent the cache
+function spawnCache(cell: Cell) {
+  const bounds = board.getCellBounds(cell);
   const rect = leaflet.rectangle(bounds).addTo(map);
 
-  // Handle interactions with the cache
-  rect.bindPopup(() => {
-    // Each cache has a random point value, mutable by the player
-    let numCoins = Math.floor(luck([i, j, "initialValue"].toString()) * 100);
+  // Generate a random number of coins for this cache
+  const numCoins = Math.floor(luck([cell.i, cell.j].toString()) * 100); // 1-5 coins
+  const cache: Cache = {
+    coins: Array.from({ length: numCoins }, (_, serial) => ({ cell, serial })),
+  };
 
-    // The popup offers a description and button
+  rect.bindPopup(() => {
+    let totalCoins = cache.coins.length;
+
+    function renderCoinList() {
+      return cache.coins
+        .map((coin) =>
+          `<div>${coin.cell.i}, ${coin.cell.j}: Coin ${coin.serial}</div>`
+        )
+        .join("");
+    }
+
     const popupDiv = document.createElement("div");
     popupDiv.innerHTML = `
-                <div>There is a cache here at "${i},${j}". It has value <span id="value">${numCoins}</span>.</div>
-                <button id="collect">collect</button> <button id="deposit">deposit</button>`;
+        <div>There is a cache here at "${cell.i},${cell.j}". It has <span id="coin-count">${totalCoins}</span> coins.</div>
+        <div><strong>Coins:</strong></div>
+        <div id="coin-list">${renderCoinList()}</div> <!-- List of coins -->
+        <button id="collect">Collect Coin</button> 
+        <button id="deposit">Deposit Coin</button>`;
 
     function collect() {
-      numCoins--;
-      popupDiv.querySelector<HTMLSpanElement>("#value")!.innerHTML = numCoins
-        .toString();
-      coins++;
-      statusPanel.innerHTML = `Num Coins: ${coins}`;
+      if (cache.coins.length > 0) {
+        const coinToCollect = cache.coins.pop()!; // Remove a coin from the cache
+        playerInventory.collect(coinToCollect); // Add it to the player inventory
+        coins++;
+        totalCoins = cache.coins.length; // Update the coin count
+        statusPanel.innerHTML = `Num Coins: ${coins}`;
+
+        // Update the display of the coin list and count
+        popupDiv.querySelector<HTMLDivElement>("#coin-list")!.innerHTML =
+          renderCoinList();
+        popupDiv.querySelector<HTMLSpanElement>("#coin-count")!.innerHTML =
+          `${totalCoins}`;
+      }
     }
 
     function deposit() {
-      numCoins++;
-      popupDiv.querySelector<HTMLSpanElement>("#value")!.innerHTML = numCoins
-        .toString();
-      coins--;
-      statusPanel.innerHTML = `Num Coins: ${coins}`;
+      if (playerInventory.coins.length > 0) {
+        const coinToDeposit = playerInventory.coins.pop()!; // Remove a coin from the inventory
+        cache.coins.push(coinToDeposit); // Add it back to the cache
+        coins--;
+        totalCoins = cache.coins.length; // Update the coin count
+        statusPanel.innerHTML = `Num Coins: ${coins}`;
+
+        // Update the display of the coin list and count
+        popupDiv.querySelector<HTMLDivElement>("#coin-list")!.innerHTML =
+          renderCoinList();
+        popupDiv.querySelector<HTMLSpanElement>("#coin-count")!.innerHTML =
+          `${totalCoins}`;
+      }
     }
 
-    // Clicking the button decrements the cache's value and increments the player's points
-    popupDiv
-      .querySelector<HTMLButtonElement>("#collect")!
-      .addEventListener("click", () => {
-        collect();
-      });
-    popupDiv.querySelector<HTMLButtonElement>("#deposit")!
-      .addEventListener("click", () => {
-        deposit();
-      });
+    popupDiv.querySelector<HTMLButtonElement>("#collect")!.addEventListener(
+      "click",
+      collect,
+    );
+    popupDiv.querySelector<HTMLButtonElement>("#deposit")!.addEventListener(
+      "click",
+      deposit,
+    );
     return popupDiv;
   });
 }
 
-// Look around the player's neighborhood for caches to spawn
-for (let i = -NEIGHBORHOOD_SIZE; i < NEIGHBORHOOD_SIZE; i++) {
-  for (let j = -NEIGHBORHOOD_SIZE; j < NEIGHBORHOOD_SIZE; j++) {
-    // If location i,j is lucky enough, spawn a cache!
-    if (luck([i, j].toString()) < CACHE_SPAWN_PROBABILITY) {
-      spawnCache(i, j);
-    }
-  }
-}
+// Use board to get cells near the player and spawn caches
+const cellsToSpawn = board.getCellsNearPoint(playerLocation);
+cellsToSpawn.forEach((cell) => spawnCache(cell));
