@@ -3,8 +3,7 @@ import leaflet from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./style.css";
 import "./leafletWorkaround.ts";
-import luck from "./luck.ts";
-import { Board, Cell } from "./board.ts";
+import { Board } from "./board.ts";
 
 // DOM and gameplay setup
 const app = document.querySelector<HTMLDivElement>("#app")!;
@@ -39,9 +38,10 @@ playerMarker.bindPopup(() => {
   return popupDiv1;
 });
 
-interface Coins {
-  cell: Cell;
-  serial: number;
+export interface Coins {
+  serial: number; // Unique identifier for each coin
+  identity: string; // Unique identity based on cache
+  cell: { i: number; j: number }; // Coordinates of the cache where the coin originated
 }
 
 interface Cache {
@@ -54,8 +54,7 @@ interface Inventory {
   deposit(coin: Coins): void;
 }
 
-// Creating inventory that holds coins
-const playerInventory: Inventory = {
+export const playerInventory: Inventory = {
   coins: [],
   collect(coin: Coins) {
     this.coins.push(coin);
@@ -72,7 +71,6 @@ const playerInventory: Inventory = {
   },
 };
 
-let coins = 0;
 const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!;
 statusPanel.innerHTML = "Num Coins: 0";
 
@@ -83,76 +81,95 @@ const board = new Board(
   CACHE_SPAWN_PROBABILITY,
 );
 
-function spawnCache(cell: Cell) {
-  const bounds = board.getCellBounds(cell);
-  const rect = leaflet.rectangle(bounds).addTo(map);
+function spawnCache() {
+  const visibleCaches = board.getCellsNearPoint(playerLocation);
 
-  // Generate a random number of coins for this cache
-  const numCoins = Math.floor(luck([cell.i, cell.j].toString()) * 100); // 1-9 coins
-  const cache: Cache = {
-    coins: Array.from({ length: numCoins }, (_, serial) => ({ cell, serial })),
-  };
-
-  rect.bindPopup(() => {
-    let totalCoins = cache.coins.length;
-
-    function renderCoinList() {
-      return cache.coins
-        .map((coin) =>
-          `<div>${coin.cell.i}, ${coin.cell.j}: Coin ${coin.serial}</div>`
-        )
-        .join("");
+  // Remove existing cache layers (rectangles) from the map
+  map.eachLayer((layer: leaflet.Layer) => {
+    if (layer instanceof leaflet.Rectangle) {
+      map.removeLayer(layer);
     }
+  });
 
-    const popupDiv = document.createElement("div");
-    popupDiv.innerHTML = `
-        <div>There is a cache here at "${cell.i},${cell.j}". It has <span id="coin-count">${totalCoins}</span> coins.</div>
-        <div><strong>Coins:</strong></div>
-        <div id="coin-list">${renderCoinList()}</div> <!-- List of coins -->
-        <button id="collect">Collect Coin</button> 
-        <button id="deposit">Deposit Coin</button>`;
+  visibleCaches.forEach((cache) => {
+    const bounds = board.getCellBounds({ i: cache.i, j: cache.j });
+    const rect = leaflet.rectangle(bounds).addTo(map);
 
-    function collect() {
-      if (cache.coins.length > 0) {
-        const coinToCollect = cache.coins.pop()!; // Remove a coin from the cache
-        playerInventory.collect(coinToCollect); // Add it to the player inventory
-        coins++;
-        totalCoins = cache.coins.length; // Update the coin count
-        statusPanel.innerHTML = `Num Coins: ${coins}`;
+    rect.bindPopup(() => {
+      const popupDiv = document.createElement("div");
 
-        // Update the display of the coin list and count
-        popupDiv.querySelector<HTMLDivElement>("#coin-list")!.innerHTML =
-          renderCoinList();
-        popupDiv.querySelector<HTMLSpanElement>("#coin-count")!.innerHTML =
-          `${totalCoins}`;
-      }
-    }
+      // Create a list of all the coins in the cache
+      const coinList = cache.coins.map((coin) => `
+              <div>Coin ${coin.identity}</div>
+            `).join("");
 
-    function deposit() {
-      if (playerInventory.coins.length > 0) {
-        const coinToDeposit = playerInventory.coins.pop()!; // Remove a coin from the inventory
-        cache.coins.push(coinToDeposit); // Add it back to the cache
-        coins--;
-        totalCoins = cache.coins.length; // Update the coin count
-        statusPanel.innerHTML = `Num Coins: ${coins}`;
+      popupDiv.innerHTML = `
+                <div>Cache at ${cache.i}, ${cache.j} with ${cache.numCoins} coins</div>
+                <div>Coins in this cache:</div>
+                ${coinList}
+                <button id="collect-${cache.i}-${cache.j}">Collect Coin</button>
+                <button id="deposit-${cache.i}-${cache.j}">Deposit Coin</button>
+            `;
 
-        // Update the display of the coin list and count
-        popupDiv.querySelector<HTMLDivElement>("#coin-list")!.innerHTML =
-          renderCoinList();
-        popupDiv.querySelector<HTMLSpanElement>("#coin-count")!.innerHTML =
-          `${totalCoins}`;
-      }
-    }
+      // Collect Coin button functionality
+      popupDiv.querySelector<HTMLButtonElement>(
+        `#collect-${cache.i}-${cache.j}`,
+      )
+        ?.addEventListener("click", () => {
+          if (cache.numCoins > 0) {
+            const coin = cache.collectCoin();
+            if (coin) {
+              playerInventory.collect(coin); // Add to inventory
+              statusPanel.innerHTML = `Coins: ${playerInventory.coins.length}`;
+              board.saveCacheState(cache); // Save updated cache state
 
-    popupDiv.querySelector<HTMLButtonElement>("#collect")!.addEventListener(
-      "click",
-      collect,
-    );
-    popupDiv.querySelector<HTMLButtonElement>("#deposit")!.addEventListener(
-      "click",
-      deposit,
-    );
-    return popupDiv;
+              popupDiv.innerHTML = `
+                                <div>Cache at ${cache.i}, ${cache.j} with ${cache.numCoins} coins</div>
+                                <div>Coins in this cache:</div>
+                                ${
+                cache.coins.map((coin) => `<div>Coin ${coin.identity}</div>`)
+                  .join("")
+              }
+                            `;
+            }
+          }
+        });
+
+      // Deposit Coin button functionality
+      popupDiv.querySelector<HTMLButtonElement>(
+        `#deposit-${cache.i}-${cache.j}`,
+      )
+        ?.addEventListener("click", () => {
+          // Check if the player has any coins in their inventory
+          if (playerInventory.coins.length > 0) {
+            // Pop a coin from the player's inventory
+            const coinToDeposit = playerInventory.coins.pop();
+
+            if (coinToDeposit) {
+              // Push the popped coin into the cache
+              cache.depositCoin(coinToDeposit);
+              statusPanel.innerHTML = `Coins: ${playerInventory.coins.length}`; // Decrease the displayed coin count for the player
+
+              // Save the updated cache state
+              board.saveCacheState(cache);
+
+              // Update the popup with the new cache information
+              popupDiv.innerHTML = `
+                                <div>Cache at ${cache.i}, ${cache.j} with ${cache.numCoins} coins</div>
+                                <div>Coins in this cache:</div>
+                                ${
+                cache.coins.map((coin) => `<div>Coin ${coin.identity}</div>`)
+                  .join("")
+              }
+                            `;
+            }
+          } else {
+            alert("No coins available to deposit.");
+          }
+        });
+
+      return popupDiv;
+    });
   });
 }
 
@@ -185,6 +202,7 @@ function movePlayer(direction: "north" | "south" | "west" | "east") {
       break;
   }
   playerMarker.setLatLng(playerLocation);
+  spawnCache();
 }
 
 document.querySelector("#north")?.addEventListener(
@@ -204,6 +222,4 @@ document.querySelector("#east")?.addEventListener(
   () => movePlayer("east"),
 );
 
-// Use board to get cells near the player and spawn caches
-const cellsToSpawn = board.getCellsNearPoint(playerLocation);
-cellsToSpawn.forEach((cell) => spawnCache(cell));
+spawnCache();
