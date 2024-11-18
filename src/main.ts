@@ -13,7 +13,7 @@ button.innerHTML = "click me!";
 button.addEventListener("click", () => alert("You clicked the button!"));
 app.append(button);
 
-const playerLocation = leaflet.latLng(36.98949379578401, -122.06277128548504);
+let playerLocation = leaflet.latLng(36.98949379578401, -122.06277128548504);
 const GAMEPLAY_ZOOM_LEVEL = 19;
 const TILE_DEGREES = 1e-4;
 const NEIGHBORHOOD_SIZE = 8;
@@ -88,7 +88,7 @@ function spawnCache(cell: Cell) {
   const rect = leaflet.rectangle(bounds).addTo(map);
 
   // Generate a random number of coins for this cache
-  const numCoins = Math.floor(luck([cell.i, cell.j].toString()) * 100); // 1-5 coins
+  const numCoins = Math.floor(luck([cell.i, cell.j].toString()) * 100); // 1-9 coins
   const cache: Cache = {
     coins: Array.from({ length: numCoins }, (_, serial) => ({ cell, serial })),
   };
@@ -155,6 +155,54 @@ function spawnCache(cell: Cell) {
     return popupDiv;
   });
 }
+
+function movePlayer(direction: "north" | "south" | "west" | "east") {
+  const delta = TILE_DEGREES;
+  switch (direction) {
+    case "north":
+      playerLocation = leaflet.latLng(
+        playerLocation.lat + delta,
+        playerLocation.lng,
+      );
+      break;
+    case "south":
+      playerLocation = leaflet.latLng(
+        playerLocation.lat - delta,
+        playerLocation.lng,
+      );
+      break;
+    case "west":
+      playerLocation = leaflet.latLng(
+        playerLocation.lat,
+        playerLocation.lng - delta,
+      );
+      break;
+    case "east":
+      playerLocation = leaflet.latLng(
+        playerLocation.lat,
+        playerLocation.lng + delta,
+      );
+      break;
+  }
+  playerMarker.setLatLng(playerLocation);
+}
+
+document.querySelector("#north")?.addEventListener(
+  "click",
+  () => movePlayer("north"),
+);
+document.querySelector("#south")?.addEventListener(
+  "click",
+  () => movePlayer("south"),
+);
+document.querySelector("#west")?.addEventListener(
+  "click",
+  () => movePlayer("west"),
+);
+document.querySelector("#east")?.addEventListener(
+  "click",
+  () => movePlayer("east"),
+);
 
 // Use board to get cells near the player and spawn caches
 const cellsToSpawn = board.getCellsNearPoint(playerLocation);
