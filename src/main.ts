@@ -38,6 +38,9 @@ playerMarker.bindPopup(() => {
   return popupDiv1;
 });
 
+let watchId: number | null = null; // Track the watch ID for geolocation
+let isSensorActive = false; // Track if the sensor is currently active
+
 export interface Coins {
   serial: number; // Unique identifier for each coin
   identity: string; // Unique identity based on cache
@@ -221,5 +224,44 @@ document.querySelector("#east")?.addEventListener(
   "click",
   () => movePlayer("east"),
 );
+
+document.querySelector("#sensor")?.addEventListener("click", () => {
+  if (!navigator.geolocation) {
+    alert("Geolocation is not supported by your browser.");
+    return;
+  }
+
+  if (!isSensorActive) {
+    // Enable automatic geolocation updates
+    watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        const currentLocation = leaflet.latLng(latitude, longitude);
+        map.setView(currentLocation, GAMEPLAY_ZOOM_LEVEL); // Center map
+        playerMarker.setLatLng(currentLocation); // Update player marker
+        playerLocation = currentLocation; // Update player's location in the game
+        spawnCache();
+      },
+      (error) => {
+        alert(`Error accessing GPS: ${error.message}`);
+      },
+      {
+        enableHighAccuracy: true, // Use high accuracy if available
+        maximumAge: 0, // Do not use cached position
+      },
+    );
+
+    isSensorActive = true;
+    alert("Geolocation tracking enabled!");
+  } else {
+    // Disable geolocation updates
+    if (watchId !== null) {
+      navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+    }
+    isSensorActive = false;
+    alert("Geolocation tracking disabled.");
+  }
+});
 
 spawnCache();
