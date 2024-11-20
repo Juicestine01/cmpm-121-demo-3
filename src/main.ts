@@ -32,9 +32,26 @@ leaflet.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
 }).addTo(map);
 
 const playerMarker = leaflet.marker(playerLocation).addTo(map);
+function updatePlayerPopup() {
+  const playerCoordinates = board.getCellForPoint(playerLocation);
+
+  // Update the player's popup content
+  playerMarker.getPopup()!.setContent(
+    `Player Location: (${playerCoordinates.i}, ${playerCoordinates.j})`,
+  );
+}
+
+// Bind the initial popup content
 playerMarker.bindPopup(() => {
   const popupDiv1 = document.createElement("div");
-  popupDiv1.innerHTML = `<div>${board.getCellForPoint(playerLocation)}</div>`;
+
+  // Convert the player's location to (i, j) coordinates
+  const playerCoordinates = board.getCellForPoint(playerLocation);
+
+  // Display the coordinates in the popup
+  popupDiv1.innerHTML =
+    `Player Location: (${playerCoordinates.i}, ${playerCoordinates.j})`;
+
   return popupDiv1;
 });
 
@@ -101,80 +118,175 @@ function spawnCache() {
     rect.bindPopup(() => {
       const popupDiv = document.createElement("div");
 
-      // Create a list of all the coins in the cache
+      // Create a list of all the coins in the cache with clickable identities
       const coinList = cache.coins.map((coin) => `
-              <div>Coin ${coin.identity}</div>
-            `).join("");
+          <div>
+            <a href="#" class="coin-link" data-coin-id="${coin.identity}">${coin.identity}</a>
+          </div>
+        `).join("");
 
       popupDiv.innerHTML = `
-                <div>Cache at ${cache.i}, ${cache.j} with ${cache.numCoins} coins</div>
-                <div>Coins in this cache:</div>
-                ${coinList}
-                <button id="collect-${cache.i}-${cache.j}">Collect Coin</button>
-                <button id="deposit-${cache.i}-${cache.j}">Deposit Coin</button>
-            `;
+          <div>Cache at ${cache.i}, ${cache.j} with ${cache.numCoins} coins</div>
+          <div>Coins in this cache:</div>
+          ${coinList}
+          <button id="collect-${cache.i}-${cache.j}">Collect Coin</button>
+          <button id="deposit-${cache.i}-${cache.j}">Deposit Coin</button>
+        `;
+
+      // Add event listener to center map when a coin is clicked
+      popupDiv.querySelectorAll(".coin-link").forEach((coinLink) => {
+        coinLink.addEventListener("click", (event) => {
+          event.preventDefault(); // Prevent the default anchor behavior
+
+          const coinId = coinLink.getAttribute("data-coin-id");
+          if (coinId) {
+            console.log(`Coin ${coinId} clicked`);
+
+            // Center the map on the cache based on its coordinates
+            map.setView(
+              leaflet.latLng(cache.i * TILE_DEGREES, cache.j * TILE_DEGREES),
+              GAMEPLAY_ZOOM_LEVEL, // Optionally set the zoom level you want for cache view
+            );
+          }
+        });
+      });
 
       // Collect Coin button functionality
       popupDiv.querySelector<HTMLButtonElement>(
         `#collect-${cache.i}-${cache.j}`,
-      )
-        ?.addEventListener("click", () => {
-          if (cache.numCoins > 0) {
-            const coin = cache.collectCoin();
-            if (coin) {
-              playerInventory.collect(coin); // Add to inventory
-              statusPanel.innerHTML = `Coins: ${playerInventory.coins.length}`;
-              board.saveCacheState(cache); // Save updated cache state
+      )?.addEventListener("click", () => {
+        if (cache.numCoins > 0) {
+          const coin = cache.collectCoin();
+          if (coin) {
+            playerInventory.collect(coin); // Add to inventory
+            statusPanel.innerHTML = `Coins: ${playerInventory.coins.length}`;
+            board.saveCacheState(cache); // Save updated cache state
 
-              popupDiv.innerHTML = `
-                                <div>Cache at ${cache.i}, ${cache.j} with ${cache.numCoins} coins</div>
-                                <div>Coins in this cache:</div>
-                                ${
-                cache.coins.map((coin) => `<div>Coin ${coin.identity}</div>`)
-                  .join("")
-              }
-                            `;
+            popupDiv.innerHTML = `
+                <div>Cache at ${cache.i}, ${cache.j} with ${cache.numCoins} coins</div>
+                <div>Coins in this cache:</div>
+                ${
+              cache.coins.map((coin) => `<div>Coin ${coin.identity}</div>`)
+                .join("")
             }
+              `;
           }
-        });
+        }
+      });
 
       // Deposit Coin button functionality
       popupDiv.querySelector<HTMLButtonElement>(
         `#deposit-${cache.i}-${cache.j}`,
-      )
-        ?.addEventListener("click", () => {
-          // Check if the player has any coins in their inventory
-          if (playerInventory.coins.length > 0) {
-            // Pop a coin from the player's inventory
-            const coinToDeposit = playerInventory.coins.pop();
+      )?.addEventListener("click", () => {
+        // Check if the player has any coins in their inventory
+        if (playerInventory.coins.length > 0) {
+          // Pop a coin from the player's inventory
+          const coinToDeposit = playerInventory.coins.pop();
 
-            if (coinToDeposit) {
-              // Push the popped coin into the cache
-              cache.depositCoin(coinToDeposit);
-              statusPanel.innerHTML = `Coins: ${playerInventory.coins.length}`; // Decrease the displayed coin count for the player
+          if (coinToDeposit) {
+            // Push the popped coin into the cache
+            cache.depositCoin(coinToDeposit);
+            statusPanel.innerHTML = `Coins: ${playerInventory.coins.length}`; // Decrease the displayed coin count for the player
 
-              // Save the updated cache state
-              board.saveCacheState(cache);
+            // Save the updated cache state
+            board.saveCacheState(cache);
 
-              // Update the popup with the new cache information
-              popupDiv.innerHTML = `
-                                <div>Cache at ${cache.i}, ${cache.j} with ${cache.numCoins} coins</div>
-                                <div>Coins in this cache:</div>
-                                ${
-                cache.coins.map((coin) => `<div>Coin ${coin.identity}</div>`)
-                  .join("")
-              }
-                            `;
+            // Update the popup with the new cache information
+            popupDiv.innerHTML = `
+                <div>Cache at ${cache.i}, ${cache.j} with ${cache.numCoins} coins</div>
+                <div>Coins in this cache:</div>
+                ${
+              cache.coins.map((coin) => `<div>Coin ${coin.identity}</div>`)
+                .join("")
             }
-          } else {
-            alert("No coins available to deposit.");
+              `;
           }
-        });
+        } else {
+          alert("No coins available to deposit.");
+        }
+      });
 
       return popupDiv;
     });
   });
 }
+
+const movementPath = leaflet.polyline([playerLocation], {
+  color: "blue",
+  weight: 3,
+}).addTo(map);
+
+function saveGameState() {
+  const gameState = {
+    playerLocation: { lat: playerLocation.lat, lng: playerLocation.lng },
+    inventory: playerInventory.coins,
+    boardState: board.exportState(), // Save board state
+    movementPath: movementPath.getLatLngs(), // Save movement path
+  };
+
+  localStorage.setItem("gameState", JSON.stringify(gameState));
+  console.log("Game state saved!");
+}
+
+function loadGameState() {
+  const savedState = localStorage.getItem("gameState");
+
+  if (savedState) {
+    const gameState = JSON.parse(savedState);
+
+    // Restore player location
+    playerLocation = leaflet.latLng(
+      gameState.playerLocation.lat,
+      gameState.playerLocation.lng,
+    );
+    playerMarker.setLatLng(playerLocation);
+    map.setView(playerLocation, GAMEPLAY_ZOOM_LEVEL);
+
+    // Restore inventory
+    playerInventory.coins = gameState.inventory;
+
+    // Restore board state
+    board.importState(gameState.boardState); // Use the board's importState method
+
+    // Restore movement path
+    movementPath.setLatLngs(gameState.movementPath);
+
+    console.log("Game state restored!");
+  } else {
+    console.log("No saved game state found.");
+  }
+}
+
+function resetGameState() {
+  // Clear localStorage
+  localStorage.removeItem("gameState");
+
+  // Reset player location to the initial value
+  playerLocation = leaflet.latLng(36.98949379578401, -122.06277128548504);
+  playerMarker.setLatLng(playerLocation);
+  map.setView(playerLocation, GAMEPLAY_ZOOM_LEVEL);
+
+  // Reset player inventory
+  playerInventory.coins = [];
+
+  // Reset the board state
+  board.importState([]); // Pass an empty state to clear the board
+
+  // Clear the movement path
+  movementPath.setLatLngs([playerLocation]);
+
+  // Clear status panel
+  const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!;
+  statusPanel.innerHTML = "Num Coins: 0";
+
+  // Reinitialize caches around the player
+  spawnCache();
+
+  console.log("Game state reset!");
+}
+
+// Load the game state when the document is ready
+document.addEventListener("DOMContentLoaded", loadGameState);
 
 function movePlayer(direction: "north" | "south" | "west" | "east") {
   const delta = TILE_DEGREES;
@@ -204,8 +316,11 @@ function movePlayer(direction: "north" | "south" | "west" | "east") {
       );
       break;
   }
-  playerMarker.setLatLng(playerLocation);
-  spawnCache();
+  playerMarker.setLatLng(playerLocation); // Update player location
+  movementPath.addLatLng(playerLocation); // Add the new location to the polyline
+  updatePlayerPopup();
+  spawnCache(); // Update visible caches
+  saveGameState(); // Save the game state automatically
 }
 
 document.querySelector("#north")?.addEventListener(
@@ -261,6 +376,13 @@ document.querySelector("#sensor")?.addEventListener("click", () => {
     }
     isSensorActive = false;
     alert("Geolocation tracking disabled.");
+  }
+});
+
+document.querySelector("#reset")?.addEventListener("click", () => {
+  const confirmReset = confirm("Are you sure you want to reset the game?");
+  if (confirmReset) {
+    resetGameState();
   }
 });
 

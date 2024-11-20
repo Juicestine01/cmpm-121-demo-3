@@ -148,4 +148,16 @@ export class Board {
 
     return visibleCaches;
   }
+  // Export the state of mementoMap as an array of key-value pairs
+  exportState(): [string, string][] {
+    return Array.from(this.mementoMap.entries());
+  }
+
+  // Import state back into mementoMap
+  importState(state: [string, string][]): void {
+    this.mementoMap.clear();
+    state.forEach(([key, value]) => {
+      this.mementoMap.set(key, value);
+    });
+  }
 }
