@@ -142,9 +142,12 @@ function spawnCache() {
           if (coinId) {
             console.log(`Coin ${coinId} clicked`);
 
+            const [latLngPart] = coinId.split("#"); // Get the lat:lng part (before #)
+            const [lat, lng] = latLngPart.split(":").map(Number); // Split the lat:lng and convert to numbers
+
             // Center the map on the cache based on its coordinates
             map.setView(
-              leaflet.latLng(cache.i * TILE_DEGREES, cache.j * TILE_DEGREES),
+              leaflet.latLng(lat * TILE_DEGREES, lng * TILE_DEGREES),
               GAMEPLAY_ZOOM_LEVEL, // Optionally set the zoom level you want for cache view
             );
           }
