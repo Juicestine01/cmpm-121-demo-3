@@ -12,14 +12,54 @@ button.innerHTML = "click me!";
 button.addEventListener("click", () => alert("You clicked the button!"));
 app.append(button);
 
-let playerLocation = leaflet.latLng(36.98949379578401, -122.06277128548504);
+export class Player {
+  location: leaflet.LatLng;
+
+  constructor(initialLocation: leaflet.LatLng) {
+    this.location = initialLocation;
+  }
+
+  move(direction: "north" | "south" | "west" | "east") {
+    const delta = 1e-4; // TILE_DEGREES
+    switch (direction) {
+      case "north":
+        this.location = leaflet.latLng(
+          this.location.lat + delta,
+          this.location.lng,
+        );
+        break;
+      case "south":
+        this.location = leaflet.latLng(
+          this.location.lat - delta,
+          this.location.lng,
+        );
+        break;
+      case "west":
+        this.location = leaflet.latLng(
+          this.location.lat,
+          this.location.lng - delta,
+        );
+        break;
+      case "east":
+        this.location = leaflet.latLng(
+          this.location.lat,
+          this.location.lng + delta,
+        );
+        break;
+    }
+  }
+}
+
+const player = new Player(
+  leaflet.latLng(36.98949379578401, -122.06277128548504),
+);
 const GAMEPLAY_ZOOM_LEVEL = 19;
 const TILE_DEGREES = 1e-4;
 const NEIGHBORHOOD_SIZE = 8;
 const CACHE_SPAWN_PROBABILITY = 0.1;
 
 const map = leaflet.map(document.getElementById("map")!, {
-  center: playerLocation,
+  center: player.location,
   zoom: GAMEPLAY_ZOOM_LEVEL,
   zoomControl: false,
   scrollWheelZoom: false,
@@ -31,22 +71,14 @@ leaflet.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
 }).addTo(map);
 
-const playerMarker = leaflet.marker(playerLocation).addTo(map);
-function updatePlayerPopup() {
-  const playerCoordinates = board.getCellForPoint(playerLocation);
-
-  // Update the player's popup content
-  playerMarker.getPopup()!.setContent(
-    `Player Location: (${playerCoordinates.i}, ${playerCoordinates.j})`,
-  );
-}
+const playerMarker = leaflet.marker(player.location).addTo(map);
 
 // Bind the initial popup content
 playerMarker.bindPopup(() => {
   const popupDiv1 = document.createElement("div");
 
   // Convert the player's location to (i, j) coordinates
-  const playerCoordinates = board.getCellForPoint(playerLocation);
+  const playerCoordinates = board.getCellForPoint(player.location);
 
   // Display the coordinates in the popup
   popupDiv1.innerHTML =
@@ -62,10 +94,6 @@ export interface Coins {
   serial: number; // Unique identifier for each coin
   identity: string; // Unique identity based on cache
   cell: { i: number; j: number }; // Coordinates of the cache where the coin originated
-}
-
-interface Cache {
-  coins: Coins[];
 }
 
 interface Inventory {
@@ -102,7 +130,7 @@ const board = new Board(
 );
 
 function spawnCache() {
-  const visibleCaches = board.getCellsNearPoint(playerLocation);
+  const visibleCaches = board.getCellsNearPoint(player.location);
 
   // Remove existing cache layers (rectangles) from the map
   map.eachLayer((layer: leaflet.Layer) => {
@@ -214,14 +242,19 @@ function spawnCache() {
   });
 }
 
-const movementPath = leaflet.polyline([playerLocation], {
+const movementPath = leaflet.polyline([player.location], {
   color: "blue",
   weight: 3,
 }).addTo(map);
 
+function updateMapUI(player: Player) {
+  playerMarker.setLatLng(player.location); // Update player marker
+  movementPath.addLatLng(player.location); // Add to polyline
+}
+
 function saveGameState() {
   const gameState = {
-    playerLocation: { lat: playerLocation.lat, lng: playerLocation.lng },
+    playerlocation: { lat: player.location.lat, lng: player.location.lng },
     inventory: playerInventory.coins,
     boardState: board.exportState(), // Save board state
     movementPath: movementPath.getLatLngs(), // Save movement path
@@ -238,12 +271,12 @@ function loadGameState() {
     const gameState = JSON.parse(savedState);
 
     // Restore player location
-    playerLocation = leaflet.latLng(
-      gameState.playerLocation.lat,
-      gameState.playerLocation.lng,
+    player.location = leaflet.latLng(
+      gameState.playerlocation.lat,
+      gameState.playerlocation.lng,
     );
-    playerMarker.setLatLng(playerLocation);
-    map.setView(playerLocation, GAMEPLAY_ZOOM_LEVEL);
+    playerMarker.setLatLng(player.location);
+    map.setView(player.location, GAMEPLAY_ZOOM_LEVEL);
 
     // Restore inventory
     playerInventory.coins = gameState.inventory;
@@ -265,9 +298,9 @@ function resetGameState() {
   localStorage.removeItem("gameState");
 
   // Reset player location to the initial value
-  playerLocation = leaflet.latLng(36.98949379578401, -122.06277128548504);
-  playerMarker.setLatLng(playerLocation);
-  map.setView(playerLocation, GAMEPLAY_ZOOM_LEVEL);
+  player.location = leaflet.latLng(36.98949379578401, -122.06277128548504);
+  playerMarker.setLatLng(player.location);
+  map.setView(player.location, GAMEPLAY_ZOOM_LEVEL);
 
   // Reset player inventory
   playerInventory.coins = [];
@@ -276,7 +309,7 @@ function resetGameState() {
   board.importState([]); // Pass an empty state to clear the board
 
   // Clear the movement path
-  movementPath.setLatLngs([playerLocation]);
+  movementPath.setLatLngs([player.location]);
 
   // Clear status panel
   const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!;
@@ -292,38 +325,10 @@ function resetGameState() {
 document.addEventListener("DOMContentLoaded", loadGameState);
 
 function movePlayer(direction: "north" | "south" | "west" | "east") {
-  const delta = TILE_DEGREES;
-  switch (direction) {
-    case "north":
-      playerLocation = leaflet.latLng(
-        playerLocation.lat + delta,
-        playerLocation.lng,
-      );
-      break;
-    case "south":
-      playerLocation = leaflet.latLng(
-        playerLocation.lat - delta,
-        playerLocation.lng,
-      );
-      break;
-    case "west":
-      playerLocation = leaflet.latLng(
-        playerLocation.lat,
-        playerLocation.lng - delta,
-      );
-      break;
-    case "east":
-      playerLocation = leaflet.latLng(
-        playerLocation.lat,
-        playerLocation.lng + delta,
-      );
-      break;
-  }
-  playerMarker.setLatLng(playerLocation); // Update player location
-  movementPath.addLatLng(playerLocation); // Add the new location to the polyline
-  updatePlayerPopup();
-  spawnCache(); // Update visible caches
-  saveGameState(); // Save the game state automatically
+  player.move(direction);
+  updateMapUI(player); // Handle UI updates
+  spawnCache(); // Handle unrelated logic for now (decouple later if possible)
+  saveGameState(); // Optional: Keep automatic saves for convenience
 }
 
 document.querySelector("#north")?.addEventListener(
@@ -357,7 +362,7 @@ document.querySelector("#sensor")?.addEventListener("click", () => {
         const currentLocation = leaflet.latLng(latitude, longitude);
         map.setView(currentLocation, GAMEPLAY_ZOOM_LEVEL); // Center map
         playerMarker.setLatLng(currentLocation); // Update player marker
-        playerLocation = currentLocation; // Update player's location in the game
+        player.location = currentLocation; // Update player's location in the game
         spawnCache();
       },
       (error) => {
